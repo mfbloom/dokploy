@@ -7,6 +7,12 @@ import {
 	getS3Credentials,
 	paths,
 } from "../..";
+import {
+	decryptFileCommand,
+	ENCRYPTED_BACKUP_SUFFIX,
+	exportPassphraseCommand,
+	isEncryptedBackupFile,
+} from "./encryption";
 
 export const restoreVolume = async (
 	id: string,
@@ -15,6 +21,7 @@ export const restoreVolume = async (
 	backupFileName: string,
 	serverId: string,
 	serviceType: "application" | "compose",
+	passphrase?: string | null,
 ) => {
 	const destination = await findDestinationById(destinationId);
 	const { VOLUME_BACKUPS_PATH } = paths(!!serverId);
@@ -26,6 +33,25 @@ export const restoreVolume = async (
 	// Command to download backup file from S3
 	const downloadCommand = `rclone copyto ${rcloneFlags.join(" ")} ${quote([backupPath])} ${quote([`${volumeBackupPath}/${backupFileName}`])}`;
 
+	const encrypted = isEncryptedBackupFile(backupFileName);
+	if (encrypted && !passphrase) {
+		throw new Error(
+			"This backup is encrypted but no encryption passphrase is configured for this volume",
+		);
+	}
+	const tarFileName = encrypted
+		? backupFileName.slice(0, -ENCRYPTED_BACKUP_SUFFIX.length)
+		: backupFileName;
+	const decryptCommand =
+		encrypted && passphrase
+			? `
+	echo "Decrypting backup..."
+	${exportPassphraseCommand(passphrase)}
+	${decryptFileCommand(`${volumeBackupPath}/${backupFileName}`, `${volumeBackupPath}/${tarFileName}`)}
+	rm -f ${quote([`${volumeBackupPath}/${backupFileName}`])}
+	echo "Decryption completed ✅"`
+			: "";
+
 	// Base restore command that creates the volume and restores data
 	const baseRestoreCommand = `
 	set -e
@@ -36,12 +62,14 @@ export const restoreVolume = async (
 	mkdir -p ${volumeBackupPath}
 	${downloadCommand}
 	echo "Download completed ✅"
+	${decryptCommand}
 	echo "Creating new volume and restoring data..."
 	docker run --rm \
 		-v ${volumeName}:/volume_data \
 		-v ${volumeBackupPath}:/backup \
 		ubuntu \
-		tar -C /volume_data -xvf ${quote([`/backup/${backupFileName}`])}
+		tar -C /volume_data -xvf ${quote([`/backup/${tarFileName}`])}
+	rm -f ${quote([`${volumeBackupPath}/${tarFileName}`])}
 	echo "Volume restore completed ✅"
 	`;
 

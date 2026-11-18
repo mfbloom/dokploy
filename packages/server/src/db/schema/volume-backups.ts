@@ -15,6 +15,7 @@ import { mysql } from "./mysql";
 import { postgres } from "./postgres";
 import { redis } from "./redis";
 import {
+	encryptedText,
 	generateAppName,
 	VOLUME_NAME_MESSAGE,
 	VOLUME_NAME_REGEX,
@@ -37,6 +38,8 @@ export const volumeBackups = pgTable("volume_backup", {
 	cronExpression: text("cronExpression").notNull(),
 	keepLatestCount: integer("keepLatestCount"),
 	enabled: boolean("enabled"),
+	encryptionEnabled: boolean("encryptionEnabled").notNull().default(false),
+	encryptionPassphrase: encryptedText("encryptionPassphrase"),
 	applicationId: text("applicationId").references(
 		() => applications.applicationId,
 		{
@@ -123,6 +126,7 @@ export const createVolumeBackupSchema = createInsertSchema(volumeBackups, {
 		.string()
 		.regex(/^[a-zA-Z0-9._-]*$/, "Invalid service name")
 		.nullish(),
+	encryptionPassphrase: z.string().min(8).max(256).nullish(),
 }).omit({
 	volumeBackupId: true,
 	appName: true,

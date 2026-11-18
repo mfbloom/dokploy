@@ -63,6 +63,8 @@ const formSchema = z
 			.nullable(),
 		turnOff: z.boolean().default(false),
 		enabled: z.boolean().default(true),
+		encryptionEnabled: z.boolean().default(false),
+		encryptionPassphrase: z.string().optional(),
 		serviceType: z.enum([
 			"application",
 			"compose",
@@ -77,6 +79,14 @@ const formSchema = z
 		destinationId: z.string().min(1, "Destination required"),
 	})
 	.superRefine((data, ctx) => {
+		if (data.encryptionPassphrase && data.encryptionPassphrase.length < 8) {
+			ctx.addIssue({
+				code: z.ZodIssueCode.custom,
+				message: "Passphrase must be at least 8 characters",
+				path: ["encryptionPassphrase"],
+			});
+		}
+
 		if (data.serviceType === "compose" && !data.serviceName) {
 			ctx.addIssue({
 				code: z.ZodIssueCode.custom,
@@ -127,6 +137,8 @@ export const HandleVolumeBackups = ({
 			keepLatestCount: undefined,
 			turnOff: false,
 			enabled: true,
+			encryptionEnabled: false,
+			encryptionPassphrase: "",
 			serviceName: "",
 			serviceType: volumeBackupType,
 		},
@@ -183,6 +195,8 @@ export const HandleVolumeBackups = ({
 				keepLatestCount: volumeBackup.keepLatestCount || undefined,
 				turnOff: volumeBackup.turnOff,
 				enabled: volumeBackup.enabled || false,
+				encryptionEnabled: volumeBackup.encryptionEnabled,
+				encryptionPassphrase: "",
 				serviceName: volumeBackup.serviceName || "",
 				destinationId: volumeBackup.destinationId,
 				serviceType: volumeBackup.serviceType,
@@ -209,6 +223,7 @@ export const HandleVolumeBackups = ({
 		await mutateAsync({
 			...values,
 			keepLatestCount: preparedKeepLatestCount ?? undefined,
+			encryptionPassphrase: values.encryptionPassphrase || undefined,
 			destinationId: values.destinationId,
 			volumeBackupId: volumeBackupId || "",
 			serviceType: volumeBackupType,
@@ -620,6 +635,55 @@ export const HandleVolumeBackups = ({
 								</FormItem>
 							)}
 						/>
+
+						<FormField
+							control={form.control}
+							name="encryptionEnabled"
+							render={({ field }) => (
+								<FormItem>
+									<FormLabel className="flex items-center gap-2">
+										<Switch
+											checked={field.value}
+											onCheckedChange={field.onChange}
+										/>
+										Encrypt Backups
+									</FormLabel>
+									<FormDescription>
+										Backups are encrypted with AES-256 before being uploaded.
+										Requires openssl on the server running the backup.
+									</FormDescription>
+								</FormItem>
+							)}
+						/>
+
+						{form.watch("encryptionEnabled") && (
+							<FormField
+								control={form.control}
+								name="encryptionPassphrase"
+								render={({ field }) => (
+									<FormItem>
+										<FormLabel>Passphrase</FormLabel>
+										<FormControl>
+											<Input
+												type="password"
+												autoComplete="new-password"
+												placeholder={
+													volumeBackupId
+														? "Leave empty to keep the current passphrase"
+														: "At least 8 characters"
+												}
+												{...field}
+											/>
+										</FormControl>
+										<FormDescription className="text-amber-600 dark:text-amber-400">
+											⚠️ Store this passphrase somewhere safe. Without it,
+											backups cannot be decrypted outside Dokploy.
+										</FormDescription>
+										<FormMessage />
+									</FormItem>
+								)}
+							/>
+						)}
 
 						<FormField
 							control={form.control}

@@ -9,6 +9,11 @@ import {
 	getS3Credentials,
 	normalizeS3Path,
 } from "../backups/utils";
+import {
+	ENCRYPTED_BACKUP_SUFFIX,
+	encryptFileCommand,
+	exportPassphraseCommand,
+} from "./encryption";
 
 interface RestartSafeBackupCommandOptions {
 	stopCommand: string;
@@ -81,7 +86,23 @@ export const backupVolume = async (
 	const rcloneDestination = `:s3:${destination.bucket}/${bucketDestination}`;
 	const volumeBackupPath = path.join(VOLUME_BACKUPS_PATH, volumeBackup.appName);
 
-	const rcloneCommand = `rclone copyto ${rcloneFlags.join(" ")} ${quote([`${volumeBackupPath}/${backupFileName}`, rcloneDestination])}`;
+	const passphrase = volumeBackup.encryptionEnabled
+		? volumeBackup.encryptionPassphrase
+		: null;
+	if (volumeBackup.encryptionEnabled && !passphrase) {
+		throw new Error(
+			"Encryption is enabled for this volume backup but no passphrase is set",
+		);
+	}
+	const tarPath = `${volumeBackupPath}/${backupFileName}`;
+	const uploadPath = passphrase
+		? `${tarPath}${ENCRYPTED_BACKUP_SUFFIX}`
+		: tarPath;
+	const uploadDestination = passphrase
+		? `${rcloneDestination}${ENCRYPTED_BACKUP_SUFFIX}`
+		: rcloneDestination;
+
+	const rcloneCommand = `rclone copyto ${rcloneFlags.join(" ")} ${quote([uploadPath, uploadDestination])}`;
 
 	// GNU tar exits 1 when a file changes while being read, which is expected on a live volume
 	const backupCommand = `
@@ -99,12 +120,21 @@ export const backupVolume = async (
   echo "Volume backup done ✅"
   `;
 
+	const encryptCommand = passphrase
+		? `
+  echo "Encrypting backup..."
+  ${exportPassphraseCommand(passphrase)}
+  ${encryptFileCommand(tarPath, uploadPath)}
+  echo "Backup encrypted ✅"`
+		: "";
+
 	const uploadCommand = `
+  ${encryptCommand}
   echo "Starting upload to S3..."
   ${rcloneCommand}
   echo "Upload to S3 done ✅"
   echo "Cleaning up local backup file..."
-  rm ${quote([`${volumeBackupPath}/${backupFileName}`])}
+  rm -f ${quote([tarPath, uploadPath])}
   echo "Local backup file cleaned up ✅"
   `;
 

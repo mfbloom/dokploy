@@ -91,7 +91,7 @@ const cleanupOldVolumeBackups = async (
 		const rcloneFlags = getS3Credentials(destination);
 		const s3AppName = getVolumeServiceAppName(volumeBackup);
 		const backupFilesPath = `:s3:${destination.bucket}/${s3AppName}/${normalizeS3Path(prefix || "")}`;
-		const listCommand = `rclone lsf ${rcloneFlags.join(" ")} --include "${volumeName}-*.tar" ${quote([backupFilesPath])}`;
+		const listCommand = `rclone lsf ${rcloneFlags.join(" ")} --include "${volumeName}-*.tar" --include "${volumeName}-*.tar.enc" ${quote([backupFilesPath])}`;
 		const sortAndPick = `sort -r | tail -n +$((${keepLatestCount}+1)) | xargs -I{}`;
 		const deleteCommand = `rclone delete ${rcloneFlags.join(" ")} ${quote([backupFilesPath])}{}`;
 		const fullCommand = `${listCommand} | ${sortAndPick} ${deleteCommand}`;
@@ -165,7 +165,7 @@ export const runVolumeBackup = async (volumeBackupId: string) => {
 			volumeBackup.appName,
 		);
 		// delete all the .tar files
-		const command = `rm -rf ${quote([volumeBackupPath])}/*.tar`;
+		const command = `rm -rf ${quote([volumeBackupPath])}/*.tar ${quote([volumeBackupPath])}/*.tar.enc`;
 		if (serverId) {
 			await execAsyncRemote(serverId, command);
 		} else {

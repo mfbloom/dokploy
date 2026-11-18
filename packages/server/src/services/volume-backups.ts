@@ -112,16 +112,30 @@ export const findVolumeBackupById = async (volumeBackupId: string) => {
 	return volumeBackup;
 };
 
+export const omitVolumeBackupSecrets = <
+	T extends { encryptionPassphrase?: string | null },
+>(
+	volumeBackup: T,
+): Omit<T, "encryptionPassphrase"> => {
+	const { encryptionPassphrase: _omitted, ...rest } = volumeBackup;
+	return rest;
+};
+
 export const createVolumeBackup = async (
 	volumeBackup: z.infer<typeof createVolumeBackupSchema>,
 ) => {
 	const newVolumeBackup = await db
 		.insert(volumeBackups)
-		.values(volumeBackup as typeof volumeBackups.$inferInsert)
+		.values({
+			...volumeBackup,
+			encryptionPassphrase: volumeBackup.encryptionEnabled
+				? volumeBackup.encryptionPassphrase
+				: null,
+		} as typeof volumeBackups.$inferInsert)
 		.returning()
 		.then((e) => e[0]);
 
-	return newVolumeBackup;
+	return newVolumeBackup && omitVolumeBackupSecrets(newVolumeBackup);
 };
 
 export const removeVolumeBackup = async (volumeBackupId: string) => {
@@ -134,12 +148,44 @@ export const updateVolumeBackup = async (
 	volumeBackupId: string,
 	volumeBackup: z.infer<typeof updateVolumeBackupSchema>,
 ) => {
-	return await db
+	const { encryptionPassphrase, ...rest } = volumeBackup;
+	const updated = await db
 		.update(volumeBackups)
-		.set(volumeBackup as Partial<typeof volumeBackups.$inferInsert>)
+		.set({
+			...rest,
+			// An empty passphrase on edit means "keep the current one"
+			...(rest.encryptionEnabled === false
+				? { encryptionPassphrase: null }
+				: encryptionPassphrase
+					? { encryptionPassphrase }
+					: {}),
+		} as Partial<typeof volumeBackups.$inferInsert>)
 		.where(eq(volumeBackups.volumeBackupId, volumeBackupId))
 		.returning()
 		.then((e) => e[0]);
+
+	return updated && omitVolumeBackupSecrets(updated);
+};
+
+export const findRestorePassphrase = async (
+	serviceType: "application" | "compose",
+	serviceId: string,
+	volumeName: string,
+) => {
+	const backup = await db.query.volumeBackups.findFirst({
+		where: and(
+			eq(
+				serviceType === "application"
+					? volumeBackups.applicationId
+					: volumeBackups.composeId,
+				serviceId,
+			),
+			eq(volumeBackups.volumeName, volumeName),
+			eq(volumeBackups.encryptionEnabled, true),
+		),
+		columns: { encryptionPassphrase: true },
+	});
+	return backup?.encryptionPassphrase ?? null;
 };
 
 // Compose volumes can be renamed (`name:`) or external, so a volume this

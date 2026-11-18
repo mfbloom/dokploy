@@ -1,9 +1,11 @@
 import {
 	assertVolumeBelongsToService,
 	createVolumeBackup,
+	findRestorePassphrase,
 	findServiceOwningVolume,
 	findVolumeBackupById,
 	IS_CLOUD,
+	omitVolumeBackupSecrets,
 	removeVolumeBackup,
 	removeVolumeBackupJob,
 	restoreVolume,
@@ -60,6 +62,7 @@ export const volumeBackupsRouter = createTRPCRouter({
 			});
 			return await db.query.volumeBackups.findMany({
 				where: eq(volumeBackups[`${input.volumeBackupType}Id`], input.id),
+				columns: { encryptionPassphrase: false },
 				with: {
 					application: {
 						columns: { applicationId: true, appName: true, serverId: true },
@@ -115,6 +118,12 @@ export const volumeBackupsRouter = createTRPCRouter({
 				volumeName: input.volumeName,
 				serviceName: input.serviceName,
 			});
+			if (input.encryptionEnabled && !input.encryptionPassphrase) {
+				throw new TRPCError({
+					code: "BAD_REQUEST",
+					message: "An encryption passphrase is required",
+				});
+			}
 			await findDestinationByIdForOrganization(
 				input.destinationId,
 				ctx.session.activeOrganizationId,
@@ -170,7 +179,7 @@ export const volumeBackupsRouter = createTRPCRouter({
 					volumeBackup: ["read"],
 				});
 			}
-			return vb;
+			return omitVolumeBackupSecrets(vb);
 		}),
 	delete: protectedProcedure
 		.input(
@@ -258,6 +267,16 @@ export const volumeBackupsRouter = createTRPCRouter({
 					serviceId,
 					volumeName,
 					serviceName,
+				});
+			}
+			if (
+				input.encryptionEnabled &&
+				!input.encryptionPassphrase &&
+				!existingVb.encryptionPassphrase
+			) {
+				throw new TRPCError({
+					code: "BAD_REQUEST",
+					message: "An encryption passphrase is required",
 				});
 			}
 			await findDestinationByIdForOrganization(
@@ -402,6 +421,11 @@ export const volumeBackupsRouter = createTRPCRouter({
 							input.backupFileName,
 							serverId || "",
 							input.serviceType,
+							await findRestorePassphrase(
+								input.serviceType,
+								input.id,
+								input.volumeName,
+							),
 						);
 
 						emit.next("📋 Generated restore command:");
