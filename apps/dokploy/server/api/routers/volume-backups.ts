@@ -26,6 +26,7 @@ import {
 	findDestinationByIdForOrganization,
 } from "@dokploy/server/services/destination";
 import { checkServicePermissionAndAccess } from "@dokploy/server/services/permission";
+import { ExecError } from "@dokploy/server/utils/process/ExecError";
 import {
 	execAsyncRemote,
 	execAsyncStream,
@@ -385,6 +386,7 @@ export const volumeBackupsRouter = createTRPCRouter({
 				id: z.string().min(1),
 				serviceType: z.enum(["application", "compose"]),
 				serverId: z.string().optional(),
+				encryptionPassphrase: z.string().max(256).optional(),
 			}),
 		)
 		.subscription(async ({ input, ctx }) => {
@@ -421,11 +423,12 @@ export const volumeBackupsRouter = createTRPCRouter({
 							input.backupFileName,
 							serverId || "",
 							input.serviceType,
-							await findRestorePassphrase(
-								input.serviceType,
-								input.id,
-								input.volumeName,
-							),
+							input.encryptionPassphrase ||
+								(await findRestorePassphrase(
+									input.serviceType,
+									input.id,
+									input.volumeName,
+								)),
 						);
 
 						emit.next("📋 Generated restore command:");
@@ -450,9 +453,13 @@ export const volumeBackupsRouter = createTRPCRouter({
 						emit.next(
 							"🎉 All containers/services have been restarted with the restored volume.",
 						);
-					} catch {
+					} catch (error) {
 						emit.next("");
 						emit.next("❌ Volume restore failed!");
+						// ExecError messages can embed the command, which carries secrets.
+						if (error instanceof Error && !(error instanceof ExecError)) {
+							emit.next(error.message);
+						}
 					} finally {
 						emit.complete();
 					}

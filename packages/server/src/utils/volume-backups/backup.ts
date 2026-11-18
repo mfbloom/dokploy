@@ -10,6 +10,7 @@ import {
 	normalizeS3Path,
 } from "../backups/utils";
 import {
+	assertUsablePassphrase,
 	ENCRYPTED_BACKUP_SUFFIX,
 	encryptFileCommand,
 	exportPassphraseCommand,
@@ -94,6 +95,9 @@ export const backupVolume = async (
 			"Encryption is enabled for this volume backup but no passphrase is set",
 		);
 	}
+	if (passphrase) {
+		assertUsablePassphrase(passphrase);
+	}
 	const tarPath = `${volumeBackupPath}/${backupFileName}`;
 	const uploadPath = passphrase
 		? `${tarPath}${ENCRYPTED_BACKUP_SUFFIX}`
@@ -124,7 +128,7 @@ export const backupVolume = async (
 		? `
   echo "Encrypting backup..."
   ${exportPassphraseCommand(passphrase)}
-  ${encryptFileCommand(tarPath, uploadPath)}
+  ${encryptFileCommand(tarPath, uploadPath)} || { rm -f ${quote([tarPath, uploadPath])}; exit 1; }
   echo "Backup encrypted ✅"`
 		: "";
 

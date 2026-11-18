@@ -1,5 +1,5 @@
 import { TRPCError } from "@trpc/server";
-import { and, eq } from "drizzle-orm";
+import { and, desc, eq, isNotNull } from "drizzle-orm";
 import type { z } from "zod";
 import { db } from "../db";
 import {
@@ -116,9 +116,9 @@ export const omitVolumeBackupSecrets = <
 	T extends { encryptionPassphrase?: string | null },
 >(
 	volumeBackup: T,
-): Omit<T, "encryptionPassphrase"> => {
-	const { encryptionPassphrase: _omitted, ...rest } = volumeBackup;
-	return rest;
+): Omit<T, "encryptionPassphrase"> & { hasEncryptionPassphrase: boolean } => {
+	const { encryptionPassphrase, ...rest } = volumeBackup;
+	return { ...rest, hasEncryptionPassphrase: !!encryptionPassphrase };
 };
 
 export const createVolumeBackup = async (
@@ -153,12 +153,9 @@ export const updateVolumeBackup = async (
 		.update(volumeBackups)
 		.set({
 			...rest,
-			// An empty passphrase on edit means "keep the current one"
-			...(rest.encryptionEnabled === false
-				? { encryptionPassphrase: null }
-				: encryptionPassphrase
-					? { encryptionPassphrase }
-					: {}),
+			// An empty passphrase means "keep the current one". It is also kept when
+			// encryption is turned off so existing .enc backups stay restorable.
+			...(encryptionPassphrase ? { encryptionPassphrase } : {}),
 		} as Partial<typeof volumeBackups.$inferInsert>)
 		.where(eq(volumeBackups.volumeBackupId, volumeBackupId))
 		.returning()
@@ -181,8 +178,12 @@ export const findRestorePassphrase = async (
 				serviceId,
 			),
 			eq(volumeBackups.volumeName, volumeName),
-			eq(volumeBackups.encryptionEnabled, true),
+			isNotNull(volumeBackups.encryptionPassphrase),
 		),
+		orderBy: [
+			desc(volumeBackups.encryptionEnabled),
+			desc(volumeBackups.createdAt),
+		],
 		columns: { encryptionPassphrase: true },
 	});
 	return backup?.encryptionPassphrase ?? null;

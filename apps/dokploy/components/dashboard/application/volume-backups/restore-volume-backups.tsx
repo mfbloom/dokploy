@@ -29,6 +29,7 @@ import {
 import {
 	Form,
 	FormControl,
+	FormDescription,
 	FormField,
 	FormItem,
 	FormLabel,
@@ -63,6 +64,7 @@ const RestoreBackupSchema = z.object({
 	volumeName: z.string().min(1, {
 		message: "Volume name is required",
 	}),
+	encryptionPassphrase: z.string().max(256).optional(),
 });
 
 export const RestoreVolumeBackups = ({
@@ -82,6 +84,7 @@ export const RestoreVolumeBackups = ({
 			destinationId: "",
 			backupFile: "",
 			volumeName: "",
+			encryptionPassphrase: "",
 		},
 		resolver: zodResolver(RestoreBackupSchema),
 	});
@@ -89,6 +92,8 @@ export const RestoreVolumeBackups = ({
 	const destinationId = form.watch("destinationId");
 	const volumeName = form.watch("volumeName");
 	const backupFile = form.watch("backupFile");
+	const encryptionPassphrase = form.watch("encryptionPassphrase");
+	const isEncryptedFile = backupFile.endsWith(".enc");
 
 	const debouncedSetSearch = debounce((value: string) => {
 		setDebouncedSearchTerm(value);
@@ -122,6 +127,8 @@ export const RestoreVolumeBackups = ({
 			destinationId,
 			volumeName,
 			backupFileName: backupFile,
+			encryptionPassphrase:
+				(isEncryptedFile && encryptionPassphrase) || undefined,
 		},
 		{
 			enabled: isDeploying,
@@ -374,6 +381,32 @@ export const RestoreVolumeBackups = ({
 								</FormItem>
 							)}
 						/>
+
+						{isEncryptedFile && (
+							<FormField
+								control={form.control}
+								name="encryptionPassphrase"
+								render={({ field }) => (
+									<FormItem>
+										<FormLabel>Encryption Passphrase</FormLabel>
+										<FormControl>
+											<Input
+												type="password"
+												autoComplete="off"
+												placeholder="Use the passphrase saved for this volume"
+												{...field}
+											/>
+										</FormControl>
+										<FormDescription>
+											Leave empty to use the passphrase saved in this volume's
+											backup settings. Enter it if this backup was made with an
+											older passphrase.
+										</FormDescription>
+										<FormMessage />
+									</FormItem>
+								)}
+							/>
+						)}
 
 						<DialogFooter>
 							<Button

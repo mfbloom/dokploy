@@ -217,6 +217,17 @@ export const HandleVolumeBackups = ({
 	const onSubmit = async (values: z.infer<typeof formSchema>) => {
 		if (!id && !volumeBackupId) return;
 
+		if (
+			values.encryptionEnabled &&
+			!values.encryptionPassphrase &&
+			!volumeBackup?.hasEncryptionPassphrase
+		) {
+			form.setError("encryptionPassphrase", {
+				message: "A passphrase is required to encrypt backups",
+			});
+			return;
+		}
+
 		const preparedKeepLatestCount =
 			keepLatestCountInput === "" ? null : (values.keepLatestCount ?? null);
 
@@ -668,7 +679,7 @@ export const HandleVolumeBackups = ({
 												type="password"
 												autoComplete="new-password"
 												placeholder={
-													volumeBackupId
+													volumeBackup?.hasEncryptionPassphrase
 														? "Leave empty to keep the current passphrase"
 														: "At least 8 characters"
 												}
@@ -677,7 +688,9 @@ export const HandleVolumeBackups = ({
 										</FormControl>
 										<FormDescription className="text-amber-600 dark:text-amber-400">
 											⚠️ Store this passphrase somewhere safe. Without it,
-											backups cannot be decrypted outside Dokploy.
+											backups cannot be decrypted outside Dokploy. Changing it
+											does not re-encrypt existing backups: restoring an older
+											backup will ask for the passphrase it was made with.
 										</FormDescription>
 										<FormMessage />
 									</FormItem>

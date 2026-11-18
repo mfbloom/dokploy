@@ -8,6 +8,7 @@ import {
 	paths,
 } from "../..";
 import {
+	assertUsablePassphrase,
 	decryptFileCommand,
 	ENCRYPTED_BACKUP_SUFFIX,
 	exportPassphraseCommand,
@@ -36,8 +37,11 @@ export const restoreVolume = async (
 	const encrypted = isEncryptedBackupFile(backupFileName);
 	if (encrypted && !passphrase) {
 		throw new Error(
-			"This backup is encrypted but no encryption passphrase is configured for this volume",
+			"This backup is encrypted. Enter its passphrase in the restore dialog or set one in this volume's backup settings.",
 		);
+	}
+	if (encrypted && passphrase) {
+		assertUsablePassphrase(passphrase);
 	}
 	const tarFileName = encrypted
 		? backupFileName.slice(0, -ENCRYPTED_BACKUP_SUFFIX.length)
@@ -47,7 +51,11 @@ export const restoreVolume = async (
 			? `
 	echo "Decrypting backup..."
 	${exportPassphraseCommand(passphrase)}
-	${decryptFileCommand(`${volumeBackupPath}/${backupFileName}`, `${volumeBackupPath}/${tarFileName}`)}
+	${decryptFileCommand(`${volumeBackupPath}/${backupFileName}`, `${volumeBackupPath}/${tarFileName}`)} || {
+		echo "❌ Decryption failed. The passphrase is probably wrong for this backup."
+		rm -f ${quote([`${volumeBackupPath}/${backupFileName}`, `${volumeBackupPath}/${tarFileName}`])}
+		exit 1
+	}
 	rm -f ${quote([`${volumeBackupPath}/${backupFileName}`])}
 	echo "Decryption completed ✅"`
 			: "";
@@ -68,7 +76,10 @@ export const restoreVolume = async (
 		-v ${volumeName}:/volume_data \
 		-v ${volumeBackupPath}:/backup \
 		ubuntu \
-		tar -C /volume_data -xvf ${quote([`/backup/${tarFileName}`])}
+		tar -C /volume_data -xvf ${quote([`/backup/${tarFileName}`])} || {
+		rm -f ${quote([`${volumeBackupPath}/${tarFileName}`])}
+		exit 1
+	}
 	rm -f ${quote([`${volumeBackupPath}/${tarFileName}`])}
 	echo "Volume restore completed ✅"
 	`;
